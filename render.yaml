@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: vizzy-chat
+    runtime: python
+    buildCommand: bash build.sh
+    startCommand: python -m uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: HUGGINGFACE_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: REPLICATE_API_KEY
+        sync: false
