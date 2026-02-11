@@ -6,6 +6,7 @@ Images via Replicate (optional).
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 import os
@@ -170,6 +171,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve frontend static files (built React app from ../frontend/dist)
+frontend_build_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+if os.path.exists(frontend_build_path):
+    app.mount("/vizzychat", StaticFiles(directory=frontend_build_path, html=True), name="frontend")
+    logging.info(f"Frontend static files mounted from {frontend_build_path}")
+else:
+    logging.warning(f"Frontend build directory not found at {frontend_build_path}")
 
 # In-memory sessions
 sessions = {}
