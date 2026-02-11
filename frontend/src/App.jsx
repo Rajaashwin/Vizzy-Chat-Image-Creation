@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
+import { API_BASE_URL } from './config'
 import './App.css'
 import ChatMessage from './components/ChatMessage'
 import ImageGallery from './components/ImageGallery'
 import InputBar from './components/InputBar'
 
-const API_BASE = 'http://localhost:8000'
+  const API_BASE = API_BASE_URL
 
 function App() {
   const [sessionId, setSessionId] = useState(null)

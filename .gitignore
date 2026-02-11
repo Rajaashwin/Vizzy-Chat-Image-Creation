@@ -1,3 +1,11 @@
+venv/
+backend/.env
+__pycache__/
+node_modules/
+*.pyc
+dist/
+build/
+.DS_Store
 # Dependencies
 node_modules/
 venv/
@@ -50,3 +58,5 @@ yarn-error.log*
 temp/
 tmp/
 *.tmp
+.vercel
+.env*.local

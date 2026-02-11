@@ -104,7 +104,7 @@ curl -X POST http://localhost:8000/chat \
 
 **Backend (.env)**
 ```
-OPENROUTER_API_KEY=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
+OPENROUTER_API_KEY=sk-or-v1-xxxx... (redacted for security)
 REPLICATE_API_KEY= (optional, defaults to SVG placeholders)
 ```
 

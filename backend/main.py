@@ -16,7 +16,6 @@ import urllib.parse
 from dotenv import load_dotenv
 import logging
 from huggingface_hub import InferenceClient
-import os
 
 # Try to import replicate, it's optional
 try:
@@ -35,17 +34,53 @@ env_exists = os.path.exists(env_path)
 logging.info(f"Looking for .env at: {env_path}")
 logging.info(f".env file exists: {env_exists}")
 
-load_dotenv(env_path)
+load_dotenv(env_path, override=True)
 
 # Clients / keys
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")  # Free tier available
 REPLICATE_API_KEY = os.getenv("REPLICATE_API_KEY")
 
-# Debug: Log loaded API keys
+# Debug file contents
+try:
+    with open(env_path, "r", encoding="utf-8") as f:
+        env_contents = f.read()
+        logging.info(f".env file contents (first 500 chars): {env_contents[:500]}")
+except Exception as e:
+    logging.error(f"Could not read .env file: {e}")
+
+# Some users/tools set the variable name to REPLICATE_API_TOKEN; accept both.
+if not REPLICATE_API_KEY:
+    REPLICATE_API_KEY = os.getenv("REPLICATE_API_TOKEN")
+
+# If still not found, attempt to parse the .env file directly as a last resort.
+if not REPLICATE_API_KEY and os.path.exists(env_path):
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                if k == "REPLICATE_API_KEY" and v:
+                    REPLICATE_API_KEY = v
+                    break
+                if k == "REPLICATE_API_TOKEN" and v:
+                    REPLICATE_API_KEY = v
+                    break
+    except Exception as e:
+        logging.warning(f"Failed to parse .env for replicate key: {e}")
+
+# Normalize empty-string vs None
+if REPLICATE_API_KEY == "" or REPLICATE_API_KEY is None:
+    REPLICATE_API_KEY = None
+
+# Debug: Log loaded API keys (don't print the full key)
 logging.info(f"REPLICATE_API_KEY set: {bool(REPLICATE_API_KEY)}")
-logging.info(f"REPLICATE_API_KEY value: {REPLICATE_API_KEY}")
 logging.info(f"OPENROUTER_API_KEY set: {bool(OPENROUTER_API_KEY)}")
+if REPLICATE_API_KEY:
+    logging.info(f"Replicate key preview: {REPLICATE_API_KEY[:10]}...")
 
 # Initialize HF client (deprecated, kept for compatibility)
 hf_client = None
@@ -120,9 +155,17 @@ def generate_text(prompt: str, max_tokens: int = 300, temperature: float = 0.7) 
 
 app = FastAPI(title="Vizzy Chat Backend", version="0.1.0")
 
+# Configure CORS origins via ALLOWED_ORIGINS env var (comma-separated).
+# Default is '*' for development. In production set to your Pages origin.
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
+if allowed_origins_env.strip() == "*":
+    allowed_origins = ["*"]
+else:
+    allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
