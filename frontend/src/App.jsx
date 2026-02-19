@@ -216,8 +216,7 @@ function App() {
             <div className="loading-indicator">
               <div className="spinner"></div>
               <p>Generating your creation...</p>
-              {mode === 'chat' && <span className="model-hint">Using {modelInfo.llm}</span>}
-              {mode === 'image' && <span className="model-hint">LLM: {modelInfo.llm} | Images: {modelInfo.image}</span>}
+              <span className="model-hint">LLM: {modelInfo.llm} | Images: {modelInfo.image}</span>
             </div>
           )}
 
@@ -233,7 +232,7 @@ function App() {
           />
         )}
 
-        <InputBar onSend={handleSendMessage} onUpload={handleUpload} disabled={loading} mode={mode} setMode={setMode} />
+        <InputBar onSend={handleSendMessage} onUpload={handleUpload} disabled={loading} />
       </div>
     </div>
   )
