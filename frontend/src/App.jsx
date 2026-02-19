@@ -10,7 +10,7 @@ import InputBar from './components/InputBar'
 
 function App() {
   const [sessionId, setSessionId] = useState(null)
-  const [mode, setMode] = useState('image') // 'image' or 'chat'
+  // no explicit mode; backend determines behaviour via intent
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [selectedImages, setSelectedImages] = useState([])
@@ -41,7 +41,6 @@ function App() {
       const response = await axios.post(`${API_BASE}/chat`, {
         session_id: sessionId,
         message: text,
-        num_images: mode === 'image' ? 4 : 0, // Generate 4 images by default per spec
       })
 
       const { images, image_descriptions, copy, intent_category, llm_model, image_model } = response.data
@@ -117,7 +116,7 @@ function App() {
         session_id: sessionId,
         message: lastUserMessage,
         refinement: refinementText,
-        num_images: 4,
+        // backend will respect intent (typically image mode)
       })
 
       const { images, image_descriptions, copy, intent_category, llm_model, image_model } = response.data
@@ -171,11 +170,9 @@ function App() {
             <span className="model-badge">
               LLM: {modelInfo.llm}
             </span>
-            {mode === 'image' && (
-              <span className="model-badge image-model">
-                Images: {modelInfo.image}
-              </span>
-            )}
+            <span className="model-badge image-model">
+              Images: {modelInfo.image}
+            </span>
           </div>
         </div>
       </header>

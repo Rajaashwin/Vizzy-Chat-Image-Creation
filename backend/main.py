@@ -730,15 +730,18 @@ async def chat(request: ChatRequest):
             except ValueError:
                 pass
 
-    if request.num_images == 0:
-        # Chat mode: only text, no images
+    # determine intent (may override num_images)
+    intent_category, base_prompt = interpret_intent(request.message)
+    if intent_category == "chat":
+        # user is asking a general question - no image generation
         reply = generate_chat_reply(request.message)
         copy_text = reply
         images = []
-        intent_category = "chat"
+        # descriptions/suggestion remain empty
+        descriptions = []
+        suggestion = ""
     else:
         # Image mode: generate images + copy
-        intent_category, base_prompt = interpret_intent(request.message)
         # build a structured prompt with defaults
         final_prompt = construct_prompt(base_prompt, intent_category, request.num_images)
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import './InputBar.css'
 
-export default function InputBar({ onSend, onUpload, disabled, mode, setMode }) {
+export default function InputBar({ onSend, onUpload, disabled }) {
   const [input, setInput] = useState('')
 
   const handleSubmit = () => {
@@ -18,40 +18,15 @@ export default function InputBar({ onSend, onUpload, disabled, mode, setMode }) 
     }
   }
 
-  const handleModeChange = (newMode) => {
-    setMode(newMode)
-  }
 
   return (
     <div className="input-bar">
       <div className="input-controls-row">
-        <div className="mode-toggle" role="tablist" aria-label="Mode selection">
-          <button
-            className={`mode-btn ${mode === 'image' ? 'active' : ''}`}
-            onClick={() => handleModeChange('image')}
-            aria-pressed={mode === 'image'}
-            title="Image mode: Generate visuals with OpenRouter"
-          >
-            🎨 Image
-          </button>
-          <button
-            className={`mode-btn ${mode === 'chat' ? 'active' : ''}`}
-            onClick={() => handleModeChange('chat')}
-            aria-pressed={mode === 'chat'}
-            title="Chat mode: Conversational AI (text only)"
-          >
-            💬 Chat
-          </button>
-        </div>
-
+  
         <div className="input-container">
           <input
             type="text"
-            placeholder={
-              mode === 'chat' 
-                ? 'Ask a question or chat with AI...' 
-                : 'Describe an image to generate with OpenRouter...'
-            }
+            placeholder="Describe what you'd like to create (text or image prompt)"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
@@ -67,7 +42,7 @@ export default function InputBar({ onSend, onUpload, disabled, mode, setMode }) 
           >
             {disabled ? '⏳' : '→'}
           </button>
-          {mode === 'image' && onUpload && (
+          {onUpload && (
             <input
               type="file"
               accept="image/*"
@@ -80,10 +55,8 @@ export default function InputBar({ onSend, onUpload, disabled, mode, setMode }) 
         </div>
       </div>
       <p className="input-hint">
-        <strong>{mode === 'chat' ? '💬 Chat Mode' : '🎨 Image Mode'}:</strong>
-        {mode === 'chat'
-          ? ' Conversational questions answered with text only (no image generation).'
-          : ' Generate visuals with OpenRouter AI. Try descriptive prompts!'}
+        📝 Enter any creative request or upload an image to analyze. The system will
+        respond with text or generate visuals based on intent.
       </p>
     </div>
   )
