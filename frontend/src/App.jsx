@@ -14,6 +14,7 @@ function App() {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [selectedImages, setSelectedImages] = useState([])
+  const [imageDescriptions, setImageDescriptions] = useState([])
   const [modelInfo, setModelInfo] = useState({ llm: 'openrouter/auto', image: 'none' })
   const messagesEndRef = useRef(null)
 
@@ -40,12 +41,15 @@ function App() {
       const response = await axios.post(`${API_BASE}/chat`, {
         session_id: sessionId,
         message: text,
-        num_images: mode === 'image' ? 2 : 0,  // Generate 2 images in image mode, 0 in chat mode
+        num_images: mode === 'image' ? 4 : 0, // Generate 4 images by default per spec
       })
 
-      const { images, copy, intent_category, llm_model, image_model } = response.data
+      const { images, image_descriptions, copy, intent_category, llm_model, image_model } = response.data
 
-      // Update model info display
+      // update gallery descriptions if available
+      // Update gallery state and model info display
+      setSelectedImages(images)
+      setImageDescriptions(image_descriptions || [])
       setModelInfo({
         llm: llm_model || 'openrouter/auto',
         image: image_model || 'none'
@@ -56,9 +60,10 @@ function App() {
         content: copy,
         images,
         intent: intent_category,
+        image_descriptions,
+        refinement_suggestion: response.data.refinement_suggestion,
       }
       setMessages(prev => [...prev, assistantMessage])
-      setSelectedImages(images)
     } catch (error) {
       console.error('Error:', error)
       const errorMessage = {
@@ -88,10 +93,10 @@ function App() {
         session_id: sessionId,
         message: lastUserMessage,
         refinement: refinementText,
-        num_images: 3,
+        num_images: 4,
       })
 
-      const { images, copy, intent_category, llm_model, image_model } = response.data
+      const { images, image_descriptions, copy, intent_category, llm_model, image_model } = response.data
 
       // Update model info
       setModelInfo({
@@ -104,9 +109,12 @@ function App() {
         content: `Refined: ${copy}`,
         images,
         intent: intent_category,
+        image_descriptions,
+        refinement_suggestion: response.data.refinement_suggestion,
       }
       setMessages(prev => [...prev, refinedMessage])
       setSelectedImages(images)
+      setImageDescriptions(image_descriptions || [])
     } catch (error) {
       console.error('Refinement error:', error)
       const errorMessage = {
@@ -189,6 +197,7 @@ function App() {
         {selectedImages.length > 0 && (
           <ImageGallery
             images={selectedImages}
+            descriptions={imageDescriptions}
             onDownload={handleDownloadImage}
             onRefine={handleRefine}
           />

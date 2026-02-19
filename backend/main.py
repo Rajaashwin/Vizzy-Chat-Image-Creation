@@ -93,34 +93,55 @@ if HUGGINGFACE_API_KEY:
     except Exception as e:
         logging.warning("Failed to initialize HF client: %s", e)
 
-def generate_text(prompt: str, max_tokens: int = 300, temperature: float = 0.7) -> str:
+def generate_text(
+    prompt: str,
+    max_tokens: int = 300,
+    temperature: float = 0.7,
+    system_prompt: Optional[str] = None,
+) -> str:
     """
-    Generate text using OpenRouter API (free tier available).
-    Falls back to simple keyword-based responses if API unavailable.
+    Generate text using the OpenRouter API (free tier).
+
+    * `system_prompt` is an optional message that is sent with role="system".
+      By default we inject the CORE_SYSTEM_PROMPT defined in prompts.py so that
+      the model always behaves like the Vizzy Chat creative engine.
+
+    Falls back to a simple error if the API key is missing.
     """
     if not OPENROUTER_API_KEY:
-        raise RuntimeError("OPENROUTER_API_KEY not set in .env. Get a free key at https://openrouter.ai")
-    
+        raise RuntimeError(
+            "OPENROUTER_API_KEY not set in .env. Get a free key at https://openrouter.ai"
+        )
+
     try:
         import requests
-        
+
         # Use a fast, free model from OpenRouter
         api_url = "https://openrouter.ai/api/v1/chat/completions"
-        
+
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-        
+
+        messages = []
+        # system message: core prompt or override
+        from .prompts import CORE_SYSTEM_PROMPT
+        sys_msg = system_prompt if system_prompt is not None else CORE_SYSTEM_PROMPT
+        if sys_msg:
+            messages.append({"role": "system", "content": sys_msg})
+        messages.append({"role": "user", "content": prompt})
+
         payload = {
             "model": "openrouter/auto",  # Auto-selects best available free model
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "max_tokens": min(max_tokens, 500),
             "temperature": temperature,
         }
-        
+
         # Increased timeout for slower networks, with retry logic
         import time
+
         max_retries = 2
         for attempt in range(max_retries):
             try:
@@ -128,26 +149,32 @@ def generate_text(prompt: str, max_tokens: int = 300, temperature: float = 0.7) 
                 break
             except requests.Timeout:
                 if attempt < max_retries - 1:
-                    logging.warning(f"OpenRouter timeout, retry {attempt + 1}/{max_retries}")
+                    logging.warning(
+                        f"OpenRouter timeout, retry {attempt + 1}/{max_retries}"
+                    )
                     time.sleep(1)
                 else:
                     raise
-        
+
         if response.status_code != 200:
-            logging.error(f"OpenRouter API error: {response.status_code} - {response.text[:200]}")
-            raise RuntimeError(f"OpenRouter API returned status {response.status_code}")
-        
+            logging.error(
+                f"OpenRouter API error: {response.status_code} - {response.text[:200]}"
+            )
+            raise RuntimeError(
+                f"OpenRouter API returned status {response.status_code}"
+            )
+
         data = response.json()
-        
+
         # Extract generated text from OpenRouter response
-        if 'choices' in data and len(data['choices']) > 0:
-            text = data['choices'][0].get('message', {}).get('content', '').strip()
+        if "choices" in data and len(data["choices"]) > 0:
+            text = data["choices"][0].get("message", {}).get("content", "").strip()
         else:
             text = ""
-        
+
         if text:
             return text
-        
+
         raise ValueError("No generated text in OpenRouter response")
     except Exception as e:
         logging.error("OpenRouter text_generation failed: %s", e)
@@ -193,7 +220,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     message: str
-    num_images: int = 3
+    num_images: int = 4  # default to 4 variations per spec
     refinement: Optional[str] = None
 
 
@@ -202,6 +229,10 @@ class ChatResponse(BaseModel):
     session_id: str
     message: str
     images: List[str]
+    # descriptions for each image variation (parallel to images list)
+    image_descriptions: Optional[List[str]] = None
+    # optional suggestion the user could try for refinement
+    refinement_suggestion: Optional[str] = None
     copy: str
     intent_category: str
     conversation_history: List[ChatMessage]
@@ -217,16 +248,35 @@ class UserTaste(BaseModel):
 
 
 def interpret_intent(user_message: str) -> tuple[str, str]:
+    """Decode the user's message into an intent and a cleaned prompt.
+
+    Returns (intent_category, prompt_text).  The intent category will be one of
+    'creative', 'chat', 'refinement', 'commentary' etc., but we also store it as
+    "intent" for backwards compatibility in session tastes.
+
+    The underlying LLM is asked to classify both the type of request and
+    whether it appears to be from a home or enterprise user.  The home/enterprise
+    flag is currently ignored by the backend but could be used later.
+    """
     intent_prompt = f"""
-You are an AI art director. Analyze the user's request and:
-1) return a JSON object with keys `intent` and `prompt` only.
+You are an AI art director. Analyze the user's request and return a JSON
+object with the following keys:
+  - intent: one of ['creative', 'chat', 'refinement', 'commentary'] describing
+    the general intent
+  - prompt: a cleaned prompt suitable for use with an image model or generative
+    API
+  - user_type: either 'home' or 'enterprise' depending on whether the request
+    seems consumer-oriented or business/brand-oriented
+
 User request: "{user_message}"
 
 Respond with JSON only.
 """
     try:
         if not OPENROUTER_API_KEY:
-            logging.warning("OpenRouter API not available; returning default intent")
+            logging.warning(
+                "OpenRouter API not available; returning default intent"
+            )
             return "creative", user_message
         text = generate_text(intent_prompt, max_tokens=300, temperature=0.7)
         start = text.find("{")
@@ -235,10 +285,29 @@ Respond with JSON only.
             logging.warning("Couldn't find JSON in intent response; using defaults")
             return "creative", user_message
         parsed = json.loads(text[start:end])
-        return parsed.get("intent", "creative"), parsed.get("prompt", user_message)
+        intent = parsed.get("intent", "creative")
+        prompt = parsed.get("prompt", user_message)
+        # user_type = parsed.get("user_type", "home")  # unused for now
+        return intent, prompt
     except Exception as e:
         logging.error("interpret_intent failed: %s", e)
         return "creative", user_message
+
+
+def construct_prompt(base_prompt: str, intent: str, num_images: int) -> str:
+    """Build a fully structured prompt for image/text generation.
+
+    Injects default orientation, variation count and style clarity.  The intent is
+    currently unused but may influence wording in the future.
+    """
+    # default orientation and size instructions
+    orientation_instr = (
+        "square 1:1 orientation"  # default; could be modified by parsing directives
+    )
+    return (
+        f"{base_prompt}\n\nGenerate {num_images} variations in {orientation_instr}. "
+        "Keep descriptions focused on style, lighting, color palette, and mood."
+    )
 
 
 def generate_copy(prompt: str, intent: str) -> str:
@@ -253,7 +322,59 @@ def generate_copy(prompt: str, intent: str) -> str:
         return "A beautiful creation from your imagination."
 
 
-def generate_images_huggingface(prompt: str, num_images: int = 2) -> tuple[List[str], str]:
+def describe_image_variations(prompt: str, num_images: int) -> List[str]:
+    """Return a list of short descriptions for each variation of the prompt.
+
+    The model is asked to supply numbered labels for each variation that can be
+    shown alongside the generated images.  If the LLM fails we fall back to a
+    simple default list.
+    """
+    if num_images <= 0:
+        return []
+    try:
+        desc_prompt = (
+            f"You are an assistant that generates concise descriptions for each of "
+            f"{num_images} image variations based on the following prompt:\n" 
+            f"'{prompt}'\n"
+            "Each description should be a short phrase or sentence that includes "
+            "an orientation hint (e.g. 16:9, portrait), a style/mood cue, a color "
+            "or lighting note if relevant, and should be numbered from 1 to "
+            f"{num_images}. Separate entries with newlines."
+        )
+        text = generate_text(desc_prompt, max_tokens=100, temperature=0.7)
+        lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+        # try to take last `num_images` lines if model outputs extra
+        if len(lines) >= num_images:
+            return lines[:num_images]
+        # pad with generic labels
+        return lines + [f"Variation {i+1}" for i in range(len(lines), num_images)]
+    except Exception as e:
+        logging.error("describe_image_variations failed: %s", e)
+        return [f"Variation {i+1}" for i in range(num_images)]
+
+
+def generate_refinement_suggestion(prompt: str) -> str:
+    """Ask the LLM to suggest a single simple refinement idea for the prompt.
+
+    This suggestion can be shown to the user after every generation to nudge the
+    next iteration.  If the LLM fails, returns an empty string.
+    """
+    if not OPENROUTER_API_KEY:
+        return ""
+    try:
+        suggestion_prompt = (
+            f"Suggest a concise refinement or tweak the user could make to the "
+            f"prompt '{prompt}' in order to change the output. Respond with one "
+            "sentence only."
+        )
+        text = generate_text(suggestion_prompt, max_tokens=60, temperature=0.7)
+        return text.strip()
+    except Exception as e:
+        logging.error("generate_refinement_suggestion failed: %s", e)
+        return ""
+
+
+def generate_images_huggingface(prompt: str, num_images: int = 4) -> tuple[List[str], str]:
     """
     Generate images using HuggingFace's free inference API.
     Tries multiple free-tier models with fallback strategy.
@@ -359,7 +480,7 @@ def generate_images_openrouter(prompt: str, num_images: int = 2) -> tuple[List[s
         payload = {
             "model": "black-forest-labs/flux-pro",  # Flux AI - free, high quality
             "prompt": prompt,
-            "num_images": min(num_images, 2),  # Limit to 2 images
+            "num_images": min(num_images, 2),  # OpenRouter currently supports max 2
             "size": "512x512",
             "response_format": "url"  # Return URLs instead of base64
         }
@@ -494,16 +615,16 @@ def generate_images(prompt: str, num_images: int = 2) -> tuple[List[str], str]:
 
 
 def generate_chat_reply(user_message: str) -> str:
-    system_msg = (
-        "You are Vizzy Chat — a helpful, friendly creative assistant. "
-        "Respond conversationally and concisely. If unsure about user intent, ask a clarifying question."
-    )
+    """Generate a conversational reply to a purely textual message.
+
+    The core system prompt defined in prompts.py is automatically included via
+    :func:`generate_text`.  We don't need our own mini-system prompt here.
+    """
     try:
         if not OPENROUTER_API_KEY:
             logging.warning("OpenRouter API not configured; returning local fallback")
             return "I can help with image ideas and copy — what would you like to create?"
-        prompt = system_msg + "\nUser: " + user_message
-        text = generate_text(prompt, max_tokens=300, temperature=0.7)
+        text = generate_text(user_message, max_tokens=300, temperature=0.7)
         return text.strip()
     except Exception as e:
         logging.error("generate_chat_reply failed: %s", e)
@@ -549,13 +670,27 @@ async def root():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
+    # create or resume session
     session_id = request.session_id or str(uuid.uuid4())
-    if session_id not in sessions:
-        sessions[session_id] = {"created_at": datetime.now().isoformat(), "messages": [], "taste": UserTaste()}
+    is_new = session_id not in sessions
+    if is_new:
+        sessions[session_id] = {
+            "created_at": datetime.now().isoformat(),
+            "messages": [],
+            "taste": UserTaste(),
+        }
     session = sessions[session_id]
 
     image_model_used = "none"
+    descriptions: Optional[List[str]] = None
+    suggestion: str = ""
     
+    # if starting new session, insert startup greeting as first assistant message
+    if is_new:
+        from .prompts import STARTUP_PROMPT
+        greeting_msg = ChatMessage(role="assistant", content=STARTUP_PROMPT, images=[])
+        session["messages"].append(greeting_msg.model_dump())
+
     if request.num_images == 0:
         # Chat mode: only text, no images
         reply = generate_chat_reply(request.message)
@@ -564,12 +699,23 @@ async def chat(request: ChatRequest):
         intent_category = "chat"
     else:
         # Image mode: generate images + copy
-        intent_category, enhanced_prompt = interpret_intent(request.message)
-        
+        intent_category, base_prompt = interpret_intent(request.message)
+        # build a structured prompt with defaults
+        final_prompt = construct_prompt(base_prompt, intent_category, request.num_images)
+
         # Generate images (tries Replicate first, then OpenRouter, then falls back to colored SVGs)
-        images, image_model_used = generate_images(enhanced_prompt, min(request.num_images, 2))
+        images, image_model_used = generate_images(final_prompt, min(request.num_images, 4))
         
         copy_text = generate_copy(request.message, intent_category)
+        # describe variations so frontend can show concise labels
+        descriptions = describe_image_variations(final_prompt, len(images))
+        # suggest one quick refinement idea for the user
+        suggestion = generate_refinement_suggestion(final_prompt)
+
+    # if this was the first response of a session, prepend the startup greeting
+    if is_new:
+        from .prompts import STARTUP_PROMPT
+        copy_text = STARTUP_PROMPT + "\n\n" + copy_text
 
     user_msg = ChatMessage(role="user", content=request.message)
     assistant_msg = ChatMessage(role="assistant", content=copy_text, images=images)
@@ -583,11 +729,13 @@ async def chat(request: ChatRequest):
         session_id=session_id,
         message=copy_text,
         images=images,
+        image_descriptions=descriptions if images else None,
+        refinement_suggestion=suggestion if not is_new else suggestion,
         copy=copy_text,
         intent_category=intent_category,
         conversation_history=[ChatMessage(**m) for m in session["messages"]],
         llm_model="openrouter/auto",
-        image_model=image_model_used
+        image_model=image_model_used,
     )
 
 

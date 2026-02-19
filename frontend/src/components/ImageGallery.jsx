@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import './ImageGallery.css'
 
-export default function ImageGallery({ images, onDownload, onRefine }) {
+export default function ImageGallery({ images, descriptions = [], onDownload, onRefine }) {
   const [refineText, setRefineText] = useState('')
   const [refining, setRefining] = useState(false)
 
@@ -23,6 +23,9 @@ export default function ImageGallery({ images, onDownload, onRefine }) {
         {images.map((img, idx) => (
           <div key={idx} className="gallery-item">
             <img src={img} alt={`Variation ${idx + 1}`} />
+            {descriptions[idx] && (
+              <div className="gallery-description">{descriptions[idx]}</div>
+            )}
             <div className="gallery-controls">
               <button
                 className="gallery-btn download"

@@ -29,6 +29,11 @@ export default function ChatMessage({ message, onDownload }) {
         {message.intent && (
           <p className="intent-label">Intent: {message.intent}</p>
         )}
+        {message.refinement_suggestion && (
+          <p className="refinement-suggestion">
+            💡 Suggestion: {message.refinement_suggestion}
+          </p>
+        )}
       </div>
     </div>
   )

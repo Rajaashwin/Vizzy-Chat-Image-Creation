@@ -100,3 +100,11 @@
   margin-bottom: 0;
   font-style: italic;
 }
+
+.refinement-suggestion {
+  font-size: 0.8rem;
+  opacity: 0.9;
+  margin-top: 6px;
+  margin-bottom: 0;
+  color: #ffd700;
+}
