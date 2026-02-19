@@ -181,8 +181,17 @@ function App() {
         <div className="messages-container">
           {messages.length === 0 && (
             <div className="welcome-message">
-              <h2>Welcome to Vizzy Chat</h2>
-              <p>Describe what you want to create, and I'll generate beautiful visuals for you.</p>
+              <h2>Hey — I’m Vizzy.</h2>
+              <p>What would you like to create today?</p>
+              <p>You can create:</p>
+              <ul>
+                <li>Artworks</li>
+                <li>Posters</li>
+                <li>Product visuals</li>
+                <li>Marketing material</li>
+                <li>Reimagine photos</li>
+                <li>Or start with just an idea</li>
+              </ul>
               <div className="example-prompts">
                 <p><strong>Try:</strong></p>
                 <ul>
