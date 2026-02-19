@@ -19,9 +19,10 @@
 
 ## ✨ Features
 
-### 🎯 Dual Mode System
-- **Chat Mode** - Conversational AI via OpenRouter (free tier)
-- **Image Mode** - AI image generation via HuggingFace (free inference)
+### 🎯 Intent‑Driven Interaction
+- The backend automatically interprets your message and chooses whether to
+  respond with text, generate images, or both. No manual mode switching is
+  required; everything is driven by intent.
 
 ### 🖼️ Smart Image Generation
 - Stable Diffusion XL (high quality)
