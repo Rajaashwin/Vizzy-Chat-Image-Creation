@@ -12,7 +12,7 @@ from typing import Optional, List
 import os
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 import urllib.parse
 from dotenv import load_dotenv
 import logging
@@ -100,6 +100,7 @@ def generate_text(
     temperature: float = 0.7,
     system_prompt: Optional[str] = None,
     messages: Optional[list] = None,
+    user_type: Optional[str] = None,
 ) -> Optional[str]:
     """
     Generate text using the OpenRouter API (free tier).
@@ -109,8 +110,8 @@ def generate_text(
     `messages` list takes precedence.
 
     * `system_prompt` is an optional message that is sent with role="system".
-      By default we inject the CORE_SYSTEM_PROMPT defined in prompts.py so that
-      the model always behaves like the Vizzy Chat creative engine.
+      If user_type is provided ('home' or 'enterprise'), the appropriate prompt is auto-selected.
+      Default: CORE_SYSTEM_PROMPT
 
     Falls back to a simple error if the API key is missing.
     """
@@ -136,9 +137,15 @@ def generate_text(
             msgs = messages.copy()
         else:
             msgs = []
-            # system message: core prompt or override
-            from prompts import CORE_SYSTEM_PROMPT
-            sys_msg = system_prompt if system_prompt is not None else CORE_SYSTEM_PROMPT
+            # system message: select based on user_type or use override/default
+            from prompts import CORE_SYSTEM_PROMPT, ENTERPRISE_SYSTEM_PROMPT
+            if system_prompt is not None:
+                sys_msg = system_prompt
+            elif user_type == "enterprise":
+                sys_msg = ENTERPRISE_SYSTEM_PROMPT
+            else:
+                sys_msg = CORE_SYSTEM_PROMPT
+            
             if sys_msg:
                 msgs.append({"role": "system", "content": sys_msg})
             if prompt is not None:
@@ -235,15 +242,23 @@ else:
 # In-memory sessions
 sessions = {}
 
+# In-memory user profiles (eventually would use a real database)
+user_profiles = {}
+
 # metric counters for basic telemetry
 metrics = {
     "chat_count": 0,
     "image_count": 0,
+    "image_api_failures": 0,
     "total_chat_time": 0.0,  # seconds
+    "home_user_count": 0,
+    "enterprise_user_count": 0,
+    "latency_buckets": {"<1s": 0, "1-3s": 0, "3-10s": 0, ">10s": 0},
 }
 
-# path for session persistence
+# path for session and profile persistence
 SESSION_FILE = os.path.join(os.path.dirname(__file__), "sessions.json")
+PROFILE_FILE = os.path.join(os.path.dirname(__file__), "user_profiles.json")
 
 # load persisted sessions if available
 if os.path.exists(SESSION_FILE):
@@ -254,6 +269,15 @@ if os.path.exists(SESSION_FILE):
     except Exception as e:
         logging.warning(f"Failed to load sessions file: {e}")
 
+# load user profiles if available
+if os.path.exists(PROFILE_FILE):
+    try:
+        with open(PROFILE_FILE, "r", encoding="utf-8") as f:
+            user_profiles = json.load(f)
+            logging.info(f"Loaded {len(user_profiles)} profiles from disk")
+    except Exception as e:
+        logging.warning(f"Failed to load profiles file: {e}")
+
 
 def persist_sessions():
     try:
@@ -262,6 +286,21 @@ def persist_sessions():
     except Exception as e:
         logging.warning(f"Failed to write sessions file: {e}")
 
+def persist_profiles():
+    try:
+        with open(PROFILE_FILE, "w", encoding="utf-8") as f:
+            json.dump(user_profiles, f)
+    except Exception as e:
+        logging.warning(f"Failed to write profiles file: {e}")
+
+def check_and_reset_daily_quota(session: dict, user_type: str) -> None:
+    """Reset daily image quota if a new day has arrived."""
+    today = date.today().isoformat()
+    last_reset = session.get("quota_reset_date")
+    if last_reset != today:
+        session["image_count"] = 0
+        session["quota_reset_date"] = today
+        logging.info(f"Reset daily quota for session (new day: {today})")
 
 class ChatMessage(BaseModel):
     role: str
@@ -275,6 +314,27 @@ class ChatRequest(BaseModel):
     num_images: int = 4  # default to 4 variations per spec
     refinement: Optional[str] = None
     mode: Optional[str] = None
+
+class UserProfile(BaseModel):
+    """User profile for managing multi-session state and preferences."""
+    user_id: str
+    email: Optional[str] = None
+    user_type: str = "home"  # 'home' or 'enterprise'
+    created_at: str
+    last_active: str
+    sessions: List[str] = []  # list of session IDs
+    preferences: dict = {}  # custom preferences
+    daily_quota: int = 5  # refreshes daily
+
+class AuthRequest(BaseModel):
+    """Simple auth request (email or identifier)."""
+    email: str
+
+class AuthResponse(BaseModel):
+    """Auth response with user_id and session_id."""
+    user_id: str
+    user_type: str
+    new_user: bool
 
 
 class ChatResponse(BaseModel):
@@ -292,6 +352,11 @@ class ChatResponse(BaseModel):
     conversation_history: List[ChatMessage]
     llm_model: str = "openrouter/auto"  # Text generation model
     image_model: str = "none"  # Image generation model
+    # history of generation records (prompts, images, etc.)
+    recent_generations: Optional[List[dict]] = None
+    # tracking for image quotas
+    daily_image_count: Optional[int] = None
+    daily_image_limit: Optional[int] = None
 
 
 class UserTaste(BaseModel):
@@ -367,19 +432,19 @@ def construct_prompt(base_prompt: str, intent: str, num_images: int) -> str:
     )
 
 
-def generate_copy(prompt: str, intent: str) -> str:
+def generate_copy(prompt: str, intent: str, user_type: str = "home") -> str:
     copy_prompt = f"Create a short, poetic one-liner (max 15 words) for this artwork.\nRequest: {prompt}\nIntent: {intent}\nRespond with only the tagline."
     try:
         if not OPENROUTER_API_KEY:
             return "A beautiful creation from your imagination."
-        text = generate_text(copy_prompt, max_tokens=60, temperature=0.8)
+        text = generate_text(copy_prompt, max_tokens=60, temperature=0.8, user_type=user_type)
         return (text.strip() if text else None) or "A beautiful creation from your imagination."
     except Exception as e:
         logging.error("generate_copy failed: %s", e)
         return "A beautiful creation from your imagination."
 
 
-def describe_image_variations(prompt: str, num_images: int) -> List[str]:
+def describe_image_variations(prompt: str, num_images: int, user_type: str = "home") -> List[str]:
     """Return a list of short descriptions for each variation of the prompt.
 
     The model is asked to supply numbered labels for each variation that can be
@@ -398,7 +463,7 @@ def describe_image_variations(prompt: str, num_images: int) -> List[str]:
             "or lighting note if relevant, and should be numbered from 1 to "
             f"{num_images}. Separate entries with newlines."
         )
-        text = generate_text(desc_prompt, max_tokens=100, temperature=0.7)
+        text = generate_text(desc_prompt, max_tokens=100, temperature=0.7, user_type=user_type)
         if not text:
             return [f"Variation {i+1}" for i in range(num_images)]
         lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
@@ -412,7 +477,7 @@ def describe_image_variations(prompt: str, num_images: int) -> List[str]:
         return [f"Variation {i+1}" for i in range(num_images)]
 
 
-def generate_refinement_suggestion(prompt: str) -> str:
+def generate_refinement_suggestion(prompt: str, user_type: str = "home") -> str:
     """Ask the LLM to suggest a single simple refinement idea for the prompt.
 
     This suggestion can be shown to the user after every generation to nudge the
@@ -426,7 +491,7 @@ def generate_refinement_suggestion(prompt: str) -> str:
             f"prompt '{prompt}' in order to change the output. Respond with one "
             "sentence only."
         )
-        text = generate_text(suggestion_prompt, max_tokens=60, temperature=0.7)
+        text = generate_text(suggestion_prompt, max_tokens=60, temperature=0.7, user_type=user_type)
         return text.strip() if text else ""
     except Exception as e:
         logging.error("generate_refinement_suggestion failed: %s", e)
@@ -670,6 +735,7 @@ def generate_images(prompt: str, num_images: int = 2) -> tuple[List[str], str]:
     
     # Priority 4: Fallback to colored SVG placeholders
     logging.info("Using SVG placeholder images (all providers exhausted)")
+    metrics["image_api_failures"] += 1  # Track that we had to use SVG fallback
     return _generate_placeholder_images(num_images, seed_prompt=prompt), "Placeholder (SVG - colored by prompt)"
 
 
@@ -786,6 +852,43 @@ async def upload_image(file: UploadFile = File(...)):
     return {"analysis": analysis, "transform_options": transform_options}
 
 
+@app.post("/auth/login", response_model=AuthResponse)
+async def login(request: AuthRequest):
+    """Simple login/registration: create or retrieve user by email."""
+    email = request.email.lower().strip()
+    
+    # Check if user exists
+    if email in user_profiles:
+        user = user_profiles[email]
+        user["last_active"] = datetime.now().isoformat()
+        persist_profiles()
+        return AuthResponse(
+            user_id=email,
+            user_type=user.get("user_type", "home"),
+            new_user=False
+        )
+    
+    # Create new profile
+    new_profile = {
+        "user_id": email,
+        "email": email,
+        "user_type": "home",
+        "created_at": datetime.now().isoformat(),
+        "last_active": datetime.now().isoformat(),
+        "sessions": [],
+        "preferences": {},
+        "daily_quota": 5,
+    }
+    user_profiles[email] = new_profile
+    persist_profiles()
+    metrics["home_user_count"] += 1
+    logging.info(f"New user created: {email}")
+    return AuthResponse(
+        user_id=email,
+        user_type="home",
+        new_user=True
+    )
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     start_time = time.time()
@@ -800,12 +903,27 @@ async def chat(request: ChatRequest):
             "taste": UserTaste(),
             # track how many images this session has created (for daily limits)
             "image_count": 0,
+            "quota_reset_date": date.today().isoformat(),
         }
     session = sessions[session_id]
+
+    # Determine user type early so we can pass it to quota check
+    frontend_mode = getattr(request, 'mode', None)
+    if frontend_mode == 'chat':
+        intent_category = 'chat'
+        detected_user_type = 'home'  # default for chat
+    else:
+        # Will be overridden by interpret_intent below
+        intent_category = None
+        detected_user_type = 'home'
+
+    # Check and reset daily quota if needed
+    check_and_reset_daily_quota(session, detected_user_type)
 
     image_model_used = "none"
     descriptions: Optional[List[str]] = None
     suggestion: str = ""
+    user_type = detected_user_type  # initialize
     
     # (startup greeting will be prefixed to the first reply; no need to
     # duplicate it in session history here)
@@ -823,12 +941,12 @@ async def chat(request: ChatRequest):
                 pass
 
     # If frontend mode is 'chat', force chat intent
-    frontend_mode = getattr(request, 'mode', None)
-    if frontend_mode == 'chat':
+    if not frontend_mode or frontend_mode == 'chat':
         intent_category = 'chat'
         base_prompt = request.message
     else:
         intent_category, base_prompt, detected_user_type = interpret_intent(request.message)
+        user_type = detected_user_type
 
     if intent_category == "chat":
         # user is asking a general question - no image generation
@@ -874,16 +992,17 @@ async def chat(request: ChatRequest):
             session["image_count"] = session.get("image_count", 0) + len(images)
             metrics["image_count"] += len(images)
 
-            copy_text = generate_copy(request.message, intent_category)
+            copy_text = generate_copy(request.message, intent_category, user_type)
             # describe variations so frontend can show concise labels
-            descriptions = describe_image_variations(final_prompt, len(images))
+            descriptions = describe_image_variations(final_prompt, len(images), user_type)
             # suggest one quick refinement idea for the user
-            suggestion = generate_refinement_suggestion(final_prompt)
+            suggestion = generate_refinement_suggestion(final_prompt, user_type)
 
     # if this was the first response of a session, prepend the startup greeting
     if is_new:
-        from prompts import STARTUP_PROMPT
-        copy_text = STARTUP_PROMPT + "\n\n" + copy_text
+        from prompts import STARTUP_PROMPT, ENTERPRISE_STARTUP_PROMPT
+        startup = ENTERPRISE_STARTUP_PROMPT if user_type == "enterprise" else STARTUP_PROMPT
+        copy_text = startup + "\n\n" + copy_text
 
     # record iteration information for debugging and UI
     gen_record = {
@@ -905,6 +1024,10 @@ async def chat(request: ChatRequest):
     if intent_category and intent_category not in session["taste"].themes:
         session["taste"].themes.append(intent_category)
 
+    # compute quota info
+    daily_count = session.get("image_count", 0)
+    daily_limit = 100 if user_type == "enterprise" else 5
+
     response = ChatResponse(
         session_id=session_id,
         message=copy_text,
@@ -917,11 +1040,31 @@ async def chat(request: ChatRequest):
         conversation_history=[ChatMessage(**m) for m in session["messages"]],
         llm_model="openrouter/auto",
         image_model=image_model_used,
+        recent_generations=session.get("generations", []),
+        daily_image_count=daily_count,
+        daily_image_limit=daily_limit,
     )
-    # record timing
+    # record timing and metrics
     elapsed = time.time() - start_time
     metrics["total_chat_time"] += elapsed
-    logging.info(f"/chat handled in {elapsed:.2f}s")
+    
+    # Track user type in metrics
+    if user_type == "enterprise":
+        metrics["enterprise_user_count"] += 1
+    else:
+        metrics["home_user_count"] += 1
+    
+    # Categorize latency
+    if elapsed < 1:
+        metrics["latency_buckets"]["<1s"] += 1
+    elif elapsed < 3:
+        metrics["latency_buckets"]["1-3s"] += 1
+    elif elapsed < 10:
+        metrics["latency_buckets"]["3-10s"] += 1
+    else:
+        metrics["latency_buckets"][">10s"] += 1
+    
+    logging.info(f"/chat handled in {elapsed:.2f}s (user_type={user_type})")
     return response
 
 
@@ -932,6 +1075,66 @@ async def refine(request: ChatRequest):
     refined_message = f"{request.message}. {request.refinement or ''}"
     refined_request = ChatRequest(session_id=request.session_id, message=refined_message, num_images=request.num_images)
     return await chat(refined_request)
+
+
+@app.post("/video")
+async def generate_video(request: ChatRequest):
+    """Generate a short video concept based on the user request.
+    
+    This is a v1 stub endpoint. Currently returns a video concept description
+    and metadata. In production, would integrate with video generation APIs.
+    Enterprise users get extended capabilities.
+    """
+    if not request.session_id or request.session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session = sessions[request.session_id]
+    user_type = session.get("user_type", "home")
+    
+    # Check enterprise status for video permissions
+    if user_type != "enterprise":
+        return {
+            "status": "available_in_enterprise",
+            "message": "Video generation is an enterprise feature. Upgrade to create professional videos.",
+            "video_url": None
+        }
+    
+    # For enterprise, generate a video concept
+    try:
+        video_prompt = f"""Create a detailed video storyboard concept for: {request.message}
+        
+        Include:
+        - Scene-by-scene breakdown (5-10 scenes)
+        - Suggested duration
+        - Camera movements and transitions
+        - Audio/music suggestions
+        - Visual style notes
+        
+        Format as a JSON-compatible script outline."""
+        
+        concept = generate_text(
+            video_prompt,
+            max_tokens=500,
+            temperature=0.7,
+            user_type=user_type
+        )
+        
+        return {
+            "status": "success",
+            "message": "Video concept generated",
+            "concept": concept,
+            "video_url": None,  # Placeholder - real implementation would generate actual video
+            "duration_estimate": "30-90 seconds",
+            "format": "Horizontal (16:9)",
+            "ready_for_production": False
+        }
+    except Exception as e:
+        logging.error(f"Video generation failed: {e}")
+        return {
+            "status": "error",
+            "message": "Video generation failed",
+            "error": str(e)
+        }
 
 
 @app.get("/session/{session_id}")

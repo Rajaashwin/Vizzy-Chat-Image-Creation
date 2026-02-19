@@ -6,6 +6,7 @@ import ChatMessage from './components/ChatMessage'
 import ImageGallery from './components/ImageGallery'
 import InputBar from './components/InputBar'
 import GenerationHistory from './components/GenerationHistory'
+import HistoryView from './components/HistoryView'
 
   const API_BASE = API_BASE_URL
 
@@ -20,6 +21,7 @@ function App() {
   const [modelInfo, setModelInfo] = useState({ llm: 'openrouter/auto', image: 'none' });
   const [recentGenerations, setRecentGenerations] = useState([]);
   const [imageQuota, setImageQuota] = useState({ count: 0, limit: null });
+  const [activeTab, setActiveTab] = useState('chat');  // 'chat' or 'history'
   const messagesEndRef = useRef(null);
 
   // Initialize session on mount
@@ -209,6 +211,18 @@ function App() {
       </header>
 
       <div className="chat-area">
+        <div className="tab-header">
+          <button
+            className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
+            onClick={() => setActiveTab('chat')}
+          >💬 Chat</button>
+          <button
+            className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`}
+            onClick={() => setActiveTab('history')}
+          >📋 History</button>
+        </div>
+        {activeTab === 'chat' ? (
+        <>
         <div className="messages-container">
           {messages.length === 0 && (
             <div className="welcome-message">
@@ -255,7 +269,7 @@ function App() {
         </div>
 
         {/* Only show ImageGallery if in image mode and images exist */}
-        {mode === 'image' && selectedImages.length > 0 && (
+        {activeTab === 'chat' && mode === 'image' && selectedImages.length > 0 && (
           <ImageGallery
             images={selectedImages}
             descriptions={imageDescriptions}
@@ -264,6 +278,7 @@ function App() {
           />
         )}
 
+        {activeTab === 'chat' && (
         <InputBar
           onSend={handleSendMessage}
           onUpload={handleUpload}
@@ -271,6 +286,11 @@ function App() {
           mode={mode}
           setMode={setMode}
         />
+        )}
+        </>
+        ) : (
+          <HistoryView generations={recentGenerations} sessionId={sessionId} />
+        )}
       </div>
     </div>
   )

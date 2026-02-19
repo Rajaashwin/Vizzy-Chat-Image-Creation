@@ -142,3 +142,127 @@
     transform: rotate(360deg);
   }
 }
+/* Tab header styling */
+.tab-header {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 12px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  border-bottom: 3px solid transparent;
+}
+
+.tab-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tab-btn.active {
+  color: #fff;
+  border-bottom-color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .app-container {
+    height: 100dvh;  /* Dynamic viewport height for mobile */
+  }
+
+  .app-header {
+    padding: 15px;
+  }
+
+  .header-content h1 {
+    font-size: 1.5rem;
+    margin-bottom: 3px;
+  }
+
+  .header-content p {
+    font-size: 0.8rem;
+  }
+
+  .model-display {
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .model-badge {
+    padding: 4px 8px;
+    font-size: 0.7rem;
+  }
+
+  .messages-container {
+    padding: 15px;
+    gap: 12px;
+  }
+
+  .welcome-message {
+    padding: 20px;
+  }
+
+  .welcome-message h2 {
+    font-size: 1.8rem;
+  }
+
+  .welcome-message p {
+    font-size: 0.95rem;
+  }
+
+  .tab-btn {
+    padding: 10px;
+    font-size: 0.85rem;
+  }
+
+  .model-hint {
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-content h1 {
+    font-size: 1.2rem;
+  }
+
+  .header-content p {
+    font-size: 0.75rem;
+  }
+
+  .model-display {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .tab-btn {
+    padding: 8px;
+    font-size: 0.75rem;
+  }
+
+  .welcome-message h2 {
+    font-size: 1.5rem;
+  }
+
+  .welcome-message ul {
+    font-size: 0.85rem;
+  }
+
+  .example-prompts {
+    padding: 15px;
+  }
+
+  .example-prompts li {
+    font-size: 0.8rem;
+    margin: 8px 0;
+  }
+}
