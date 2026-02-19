@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import './InputBar.css'
 
-export default function InputBar({ onSend, disabled, mode, setMode }) {
+export default function InputBar({ onSend, onUpload, disabled, mode, setMode }) {
   const [input, setInput] = useState('')
 
   const handleSubmit = () => {
@@ -67,6 +67,16 @@ export default function InputBar({ onSend, disabled, mode, setMode }) {
           >
             {disabled ? '⏳' : '→'}
           </button>
+          {mode === 'image' && onUpload && (
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => onUpload(e.target.files[0])}
+              disabled={disabled}
+              title="Upload image for analysis"
+              className="upload-input"
+            />
+          )}
         </div>
       </div>
       <p className="input-hint">

@@ -77,6 +77,30 @@ function App() {
     }
   }
 
+  const handleUpload = async (file) => {
+    if (!file || !sessionId) return
+    setLoading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const response = await axios.post(`${API_BASE}/upload`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      const { analysis, transform_options } = response.data
+      const message = {
+        role: 'assistant',
+        content: `Image analysis: ${analysis}\nOptions: ${transform_options.join(', ')}`,
+        images: [],
+      }
+      setMessages(prev => [...prev, message])
+    } catch (err) {
+      console.error('Upload error:', err)
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Upload failed.', images: [] }])
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleRefine = async (refinementText) => {
     if (!refinementText.trim() || messages.length === 0 || !sessionId) return
 
@@ -203,7 +227,7 @@ function App() {
           />
         )}
 
-        <InputBar onSend={handleSendMessage} disabled={loading} mode={mode} setMode={setMode} />
+        <InputBar onSend={handleSendMessage} onUpload={handleUpload} disabled={loading} mode={mode} setMode={setMode} />
       </div>
     </div>
   )

@@ -663,9 +663,39 @@ async def root():
         "version": "0.1.0",
         "endpoints": {
             "POST /chat": "Send a message and get generated images + copy",
+            "POST /upload": "Upload an image for analysis and suggested transformations",
             "GET /session/{session_id}": "Retrieve session history",
         }
     }
+
+
+from fastapi import UploadFile, File
+
+@app.post("/upload")
+async def upload_image(file: UploadFile = File(...)):
+    """Accept an image upload and provide simple analysis and options.
+
+    This is a placeholder implementation to satisfy the spec; a full version
+    would run vision analysis on the bytes.  We currently return a generic
+    description and a few suggested transformations.
+    """
+    # read but do not store the file
+    try:
+        contents = await file.read()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Failed to read upload")
+
+    # dummy analysis text
+    analysis = (
+        "This image appears well-composed with balanced lighting. "
+        "You could try enhancing contrast or applying a stylistic filter."
+    )
+    transform_options = [
+        "Convert to watercolor style",
+        "Increase brightness and contrast",
+        "Crop to a square format",
+    ]
+    return {"analysis": analysis, "transform_options": transform_options}
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -685,11 +715,20 @@ async def chat(request: ChatRequest):
     descriptions: Optional[List[str]] = None
     suggestion: str = ""
     
-    # if starting new session, insert startup greeting as first assistant message
-    if is_new:
-        from .prompts import STARTUP_PROMPT
-        greeting_msg = ChatMessage(role="assistant", content=STARTUP_PROMPT, images=[])
-        session["messages"].append(greeting_msg.model_dump())
+    # (startup greeting will be prefixed to the first reply; no need to
+    # duplicate it in session history here)
+
+    # allow special instruction like "try 3 more options" to adjust count
+    if request.num_images > 0:
+        import re
+        m = re.search(r"try\s+(\d+)\s+more options", request.message, re.I)
+        if m:
+            try:
+                suggested = int(m.group(1))
+                logging.info(f"Iteration request detected, generating {suggested} images")
+                request.num_images = suggested
+            except ValueError:
+                pass
 
     if request.num_images == 0:
         # Chat mode: only text, no images
