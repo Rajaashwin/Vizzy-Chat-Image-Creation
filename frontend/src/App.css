@@ -44,6 +44,10 @@
   background: rgba(76, 209, 235, 0.3);
   border-color: rgba(76, 209, 235, 0.6);
 }
+.model-badge.quota {
+  background: rgba(255, 165, 0, 0.3);
+  border-color: rgba(255, 165, 0, 0.6);
+}
 
 .model-hint {
   font-size: 0.9rem;

@@ -19,6 +19,7 @@ function App() {
   const [imageDescriptions, setImageDescriptions] = useState([]);
   const [modelInfo, setModelInfo] = useState({ llm: 'openrouter/auto', image: 'none' });
   const [recentGenerations, setRecentGenerations] = useState([]);
+  const [imageQuota, setImageQuota] = useState({ count: 0, limit: null });
   const messagesEndRef = useRef(null);
 
   // Initialize session on mount
@@ -34,6 +35,16 @@ function App() {
 
   const handleSendMessage = async (text) => {
     if (!text.trim() || !sessionId) return;
+    // if in image mode enforce quota locally
+    if (mode === 'image' && imageQuota.limit && imageQuota.count >= imageQuota.limit) {
+      const warning = {
+        role: 'assistant',
+        content: `You've already used ${imageQuota.count} of your ${imageQuota.limit} images today.`,
+        images: [],
+      };
+      setMessages(prev => [...prev, warning]);
+      return;
+    }
     // Add user message to UI
     const userMessage = { role: 'user', content: text, images: [], mode };
     setMessages(prev => [...prev, userMessage]);
@@ -44,7 +55,7 @@ function App() {
         message: text,
         mode,
       });
-      const { images, image_descriptions, copy, intent_category, llm_model, image_model, recent_generations } = response.data;
+      const { images, image_descriptions, copy, intent_category, llm_model, image_model, recent_generations, daily_image_count, daily_image_limit } = response.data;
       setSelectedImages(images);
       setImageDescriptions(image_descriptions || []);
       setModelInfo({
@@ -54,6 +65,7 @@ function App() {
       if (recent_generations) {
         setRecentGenerations(recent_generations);
       }
+      setImageQuota({ count: daily_image_count || 0, limit: daily_image_limit || null });
       const assistantMessage = {
         role: 'assistant',
         content: copy,
@@ -187,6 +199,11 @@ function App() {
             <span className="model-badge image-model">
               Images: {modelInfo.image}
             </span>
+            {imageQuota.limit !== null && (
+              <span className="model-badge quota">
+                {imageQuota.count}/{imageQuota.limit} used
+              </span>
+            )}
           </div>
         </div>
       </header>
