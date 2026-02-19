@@ -39,8 +39,7 @@ current implementation status is noted.
 
 ## Constraints
 
-* No feature-mode switching UI in V1 – frontend uses a simple `mode` toggle but
-  all features are still triggered by intent recognition.
+* No feature-mode switching UI in V1 – frontend has no toggle; all features are triggered by intent recognition.
 * All features triggered via intent recognition – see `interpret_intent()`.
 * No long-term personalization yet – sessions are ephemeral.
 * No user profile memory – everything resets when server restarts.

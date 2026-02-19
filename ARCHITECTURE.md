@@ -8,7 +8,7 @@ full spec excerpts.
 ## 1. Frontend Layer
 
 * **React-based chat UI** served by Vite.  Source: `frontend/src/`
-* **Multimodal input**: text entry, image upload
+* **Multimodal input**: text entry, image upload (handled by `/upload` API)
 * **Output rendering**:
   * text blocks (chat bubbles)
   * image grid (default 4 variations)
