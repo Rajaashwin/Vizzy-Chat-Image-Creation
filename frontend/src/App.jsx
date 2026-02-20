@@ -28,6 +28,9 @@ function App() {
       messages: [],
       selectedImages: [],
       imageDescriptions: [],
+      allImages: [], // Keep all created images for scrolling through history
+      allImageDescriptions: [],
+      currentImageSet: 0, // Which set of images are we viewing (for created images)
       modelInfo: { llm: 'openrouter/auto', image: 'none' },
       recentGenerations: [],
       imageQuota: { count: 0, limit: null },
@@ -61,6 +64,9 @@ function App() {
         messages: [],
         selectedImages: [],
         imageDescriptions: [],
+        allImages: [], // Keep all created images for scrolling
+        allImageDescriptions: [],
+        currentImageSet: 0,
         modelInfo: { llm: 'openrouter/auto', image: 'none' },
         recentGenerations: [],
         imageQuota: { count: 0, limit: null },
@@ -245,6 +251,9 @@ function App() {
       messages: [],
       selectedImages: [],
       imageDescriptions: [],
+      allImages: [],
+      allImageDescriptions: [],
+      currentImageSet: 0,
       modelInfo: { llm: 'openrouter/auto', image: 'none' },
       recentGenerations: [],
       imageQuota: { count: 0, limit: null },
@@ -283,6 +292,9 @@ function App() {
     messages: [],
     selectedImages: [],
     imageDescriptions: [],
+    allImages: [],
+    allImageDescriptions: [],
+    currentImageSet: 0,
     modelInfo: { llm: 'openrouter/auto', image: 'none' },
     recentGenerations: [],
     imageQuota: { count: 0, limit: null },
@@ -313,9 +325,13 @@ function App() {
       
       const { image_url, analysis, transform_options } = response.data;
       
-      // Update current tab with uploaded image
+      // Update current tab - append uploaded image to history
       const updated = { ...currentTab };
+      updated.allImages = [...(updated.allImages || []), { images: [image_url], timestamp: new Date().toISOString(), isUpload: true }];
+      updated.allImageDescriptions = [...(updated.allImageDescriptions || []), [analysis || 'Uploaded image']];
       updated.selectedImages = [image_url];
+      updated.imageDescriptions = [analysis || 'Uploaded image'];
+      updated.currentImageSet = (updated.allImages.length - 1);
       const newTabs = [...tabs];
       newTabs[activeTabIndex] = updated;
       setTabs(newTabs);
@@ -350,9 +366,13 @@ function App() {
       const { images, image_descriptions, copy, intent_category, llm_model, image_model, recent_generations } = response.data;
 
       const updated = { ...tab };
-      // Update ONLY the image gallery - not messages
+      // Append new images to allImages
+      updated.allImages = [...(updated.allImages || []), { images: images || [], timestamp: new Date().toISOString() }];
+      updated.allImageDescriptions = [...(updated.allImageDescriptions || []), image_descriptions || []];
+      // Show the newest images
       updated.selectedImages = images || [];
       updated.imageDescriptions = image_descriptions || [];
+      updated.currentImageSet = (updated.allImages.length - 1);
       updated.modelInfo = { llm: llm_model || 'openrouter/auto', image: image_model || 'none' };
       if (recent_generations) updated.recentGenerations = recent_generations;
 
@@ -504,10 +524,22 @@ function App() {
             <ImageGallery
               images={selectedImages || []}
               descriptions={imageDescriptions || []}
+              allImages={currentTab.allImages || []}
+              allImageDescriptions={currentTab.allImageDescriptions || []}
+              currentImageSet={currentTab.currentImageSet || 0}
               onDownload={handleDownloadImage}
               onRefine={handleRefine}
               onUpload={handleImageUpload}
               loading={loading}
+              onSetChange={(setIdx) => {
+                const updated = { ...currentTab };
+                updated.currentImageSet = setIdx;
+                updated.selectedImages = updated.allImages[setIdx]?.images || [];
+                updated.imageDescriptions = updated.allImageDescriptions[setIdx] || [];
+                const newTabs = [...tabs];
+                newTabs[activeTabIndex] = updated;
+                setTabs(newTabs);
+              }}
             />
             {!showHistory && (
               <InputBar

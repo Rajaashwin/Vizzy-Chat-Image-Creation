@@ -2,7 +2,18 @@
 import React, { useState } from 'react';
 import './ImageGallery.css';
 
-export default function ImageGallery({ images = [], descriptions = [], onDownload, onRefine, onUpload, loading }) {
+export default function ImageGallery({ 
+  images = [], 
+  descriptions = [], 
+  allImages = [],
+  allImageDescriptions = [],
+  currentImageSet = 0,
+  onDownload, 
+  onRefine, 
+  onUpload, 
+  loading,
+  onSetChange
+}) {
   const [refineText, setRefineText] = useState('');
   const [refining, setRefining] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -13,6 +24,18 @@ export default function ImageGallery({ images = [], descriptions = [], onDownloa
     await onRefine(refineText);
     setRefineText('');
     setRefining(false);
+  };
+
+  const goToPreviousSet = () => {
+    if (currentImageSet > 0) {
+      onSetChange(currentImageSet - 1);
+    }
+  };
+
+  const goToNextSet = () => {
+    if (currentImageSet < allImages.length - 1) {
+      onSetChange(currentImageSet + 1);
+    }
   };
 
   return (
@@ -56,6 +79,29 @@ export default function ImageGallery({ images = [], descriptions = [], onDownloa
           </div>
         ) : (
           <div className="gemini-gallery-main">
+            {/* Navigation for image sets */}
+            <div className="gemini-set-navigation">
+              <button
+                className="gemini-nav-btn prev"
+                onClick={goToPreviousSet}
+                disabled={currentImageSet === 0}
+                title="Previous creation"
+              >
+                ← 
+              </button>
+              <div className="gemini-set-counter">
+                Set {currentImageSet + 1} of {allImages.length || 1}
+              </div>
+              <button
+                className="gemini-nav-btn next"
+                onClick={goToNextSet}
+                disabled={currentImageSet === (allImages.length - 1)}
+                title="Next creation"
+              >
+                →
+              </button>
+            </div>
+
             {/* Main image display */}
             <div className="gemini-gallery-preview">
               <img
@@ -99,7 +145,31 @@ export default function ImageGallery({ images = [], descriptions = [], onDownloa
               </div>
             </div>
 
-            {/* Thumbnails for all variations */}
+            {/* History of all creations/uploads */}
+            {allImages.length > 0 && (
+              <div className="gemini-creation-history">
+                <div className="gemini-history-label">📋 All Creations</div>
+                <div className="gemini-history-scroll">
+                  {allImages.map((imageSet, setIdx) => (
+                    <button
+                      key={setIdx}
+                      className={`gemini-history-item${setIdx === currentImageSet ? ' active' : ''}`}
+                      onClick={() => onSetChange(setIdx)}
+                      title={`Set ${setIdx + 1} - Click to view`}
+                    >
+                      <img 
+                        src={imageSet.images[0]} 
+                        alt={`Creation ${setIdx + 1}`}
+                        className="gemini-history-thumb"
+                      />
+                      <div className="gemini-history-label-small">#{setIdx + 1}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Thumbnails for all variations in current set */}
             {images.length > 1 && (
               <div className="gemini-gallery-thumbnails">
                 <div className="gemini-thumbs-label">Variations</div>
@@ -144,4 +214,5 @@ export default function ImageGallery({ images = [], descriptions = [], onDownloa
     </div>
   );
 }
+
 
