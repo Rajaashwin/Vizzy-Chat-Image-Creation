@@ -4,7 +4,7 @@ Uses OpenRouter API for text generation (free tier via Mistral-7B).
 Images via Replicate (optional).
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 import logging
 import time
 from huggingface_hub import InferenceClient
+import shutil
+from pathlib import Path
 
 # Try to import replicate, it's optional
 try:
@@ -42,6 +44,7 @@ load_dotenv(env_path, override=True)
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")  # Free tier available
 REPLICATE_API_KEY = os.getenv("REPLICATE_API_KEY")
+RUNWARE_API_KEY = os.getenv("RUNWARE_API_KEY")  # Primary image generation provider
 
 # Debug file contents
 try:
@@ -79,6 +82,9 @@ if REPLICATE_API_KEY == "" or REPLICATE_API_KEY is None:
     REPLICATE_API_KEY = None
 
 # Debug: Log loaded API keys (don't print the full key)
+logging.info(f"RUNWARE_API_KEY set: {bool(RUNWARE_API_KEY)}")
+if RUNWARE_API_KEY:
+    logging.info(f"Runware key preview: {RUNWARE_API_KEY[:10]}...")
 logging.info(f"REPLICATE_API_KEY set: {bool(REPLICATE_API_KEY)}")
 logging.info(f"OPENROUTER_API_KEY set: {bool(OPENROUTER_API_KEY)}")
 if REPLICATE_API_KEY:
@@ -231,6 +237,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Create uploads directory for storing user-uploaded images
+uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(uploads_dir, exist_ok=True)
+logging.info(f"Uploads directory created at {uploads_dir}")
+
 # Serve frontend static files (built React app from ../frontend/dist)
 frontend_build_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.exists(frontend_build_path):
@@ -238,6 +249,10 @@ if os.path.exists(frontend_build_path):
     logging.info(f"Frontend static files mounted from {frontend_build_path}")
 else:
     logging.warning(f"Frontend build directory not found at {frontend_build_path}")
+
+# Mount uploads directory to serve uploaded files
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
+logging.info(f"Uploads directory mounted for serving at /uploads")
 
 # In-memory sessions
 sessions = {}
@@ -396,16 +411,16 @@ Respond with JSON only.
             logging.warning(
                 "OpenRouter API not available; returning default intent"
             )
-            return "creative", user_message
+            return "creative", user_message, "home"
         text = generate_text(intent_prompt, max_tokens=300, temperature=0.7)
         if not text:
             logging.warning("Intent generation returned empty; using defaults")
-            return "creative", user_message
+            return "creative", user_message, "home"
         start = text.find("{")
         end = text.rfind("}") + 1
         if start == -1 or end == -1:
             logging.warning("Couldn't find JSON in intent response; using defaults")
-            return "creative", user_message
+            return "creative", user_message, "home"
         parsed = json.loads(text[start:end])
         intent = parsed.get("intent", "creative")
         prompt = parsed.get("prompt", user_message)
@@ -413,7 +428,7 @@ Respond with JSON only.
         return intent, prompt, user_type
     except Exception as e:
         logging.error("interpret_intent failed: %s", e)
-        return "creative", user_message
+        return "creative", user_message, "home"
 
 
 def construct_prompt(base_prompt: str, intent: str, num_images: int) -> str:
@@ -644,6 +659,62 @@ def generate_images_openrouter(prompt: str, num_images: int = 2) -> tuple[List[s
         raise
 
 
+def generate_images_runware(prompt: str, num_images: int = 4) -> tuple[List[str], str]:
+    """Generate images using Runware API - primary provider.
+    
+    Returns tuple of (image_urls, model_used).
+    """
+    if not RUNWARE_API_KEY:
+        logging.warning("RUNWARE_API_KEY not set, skipping Runware")
+        return [], "Placeholder (no Runware key)"
+    
+    try:
+        import requests
+        import json
+        
+        # Runware API endpoint for image generation
+        api_url = "https://api.runwayml.com/v1/image_generations"
+        
+        logging.info(f"Generating {num_images} images via Runware for: {prompt[:50]}...")
+        
+        headers = {
+            "Authorization": f"Bearer {RUNWARE_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "prompt": prompt,
+            "num_outputs": min(num_images, 4),
+            "size": "512x512",
+            "model": "stable-diffusion"
+        }
+        
+        response = requests.post(api_url, json=payload, headers=headers, timeout=60)
+        
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                # Runware returns data with 'images' or 'outputs' key depending on endpoint
+                image_urls = data.get("images", data.get("outputs", []))
+                
+                if isinstance(image_urls, list) and len(image_urls) > 0:
+                    logging.info(f"✓ Generated {len(image_urls)} images via Runware")
+                    return image_urls, "Runware"
+                else:
+                    logging.warning("Runware returned empty images list")
+                    return [], "Placeholder (Runware empty response)"
+            except json.JSONDecodeError:
+                logging.error("Invalid JSON from Runware, using placeholders")
+                return [], "Placeholder (Runware invalid JSON)"
+        else:
+            logging.error(f"Runware API error: {response.status_code} - {response.text[:200]}")
+            return [], f"Placeholder (Runware error {response.status_code})"
+    
+    except Exception as e:
+        logging.error(f"Runware image generation failed: {e}")
+        return [], f"Placeholder (Runware exception: {str(e)[:50]})"
+
+
 def generate_images_replicate(prompt: str, num_images: int = 3) -> tuple[List[str], str]:
     """Generate images using Replicate Flux Schnell model if available, else return placeholders."""
     if not REPLICATE_API_KEY or not HAS_REPLICATE:
@@ -689,16 +760,30 @@ def generate_images_replicate(prompt: str, num_images: int = 3) -> tuple[List[st
 def generate_images(prompt: str, num_images: int = 2) -> tuple[List[str], str]:
     """
     Intelligently generate images with fallback chain:
-    1. HuggingFace (free, no credits needed)
-    2. Replicate (if API key available)
-    3. OpenRouter (if API key available)
-    4. SVG placeholders (final fallback)
+    1. Runware (primary - provided API key)
+    2. HuggingFace (free, no credits needed)
+    3. Replicate (if API key available)
+    4. OpenRouter (if API key available)
+    5. SVG placeholders (final fallback)
     Returns tuple of (image_urls, model_name).
     """
-    logging.info(f"generate_images() called: HF={'yes' if hf_client else 'no'}, REP={HAS_REPLICATE}, OR={'yes' if OPENROUTER_API_KEY else 'no'}")
+    logging.info(f"generate_images() called: RW={'yes' if RUNWARE_API_KEY else 'no'}, HF={'yes' if hf_client else 'no'}, REP={HAS_REPLICATE}, OR={'yes' if OPENROUTER_API_KEY else 'no'}")
     
-    # Priority 1: Try HuggingFace FREE inference (no credits needed)
-    logging.info("Priority 1: Attempting HuggingFace free inference...")
+    # Priority 1: Try Runware (PRIMARY PROVIDER)
+    if RUNWARE_API_KEY:
+        logging.info("Priority 1: Attempting Runware...")
+        try:
+            images, model = generate_images_runware(prompt, num_images)
+            if images and len(images) > 0 and "Placeholder" not in model:
+                logging.info(f"✓ Generated images via {model}")
+                return images, model
+            else:
+                logging.info(f"Runware returned: {model}")
+        except Exception as e:
+            logging.warning(f"Runware failed ({e}), trying HuggingFace...")
+    
+    # Priority 2: Try HuggingFace FREE inference (no credits needed)
+    logging.info("Priority 2: Attempting HuggingFace free inference...")
     try:
         images, model = generate_images_huggingface(prompt, num_images)
         if images and "Placeholder" not in model:
@@ -709,9 +794,9 @@ def generate_images(prompt: str, num_images: int = 2) -> tuple[List[str], str]:
     except Exception as e:
         logging.warning(f"HuggingFace failed ({e}), trying Replicate...")
     
-    # Priority 2: Try Replicate if API key available (for when user adds credits)
+    # Priority 3: Try Replicate if API key available (for when user adds credits)
     if REPLICATE_API_KEY and HAS_REPLICATE:
-        logging.info("Priority 2: Attempting Replicate...")
+        logging.info("Priority 3: Attempting Replicate...")
         try:
             images, model = generate_images_replicate(prompt, num_images)
             if images and not "Placeholder" in model:
@@ -722,9 +807,9 @@ def generate_images(prompt: str, num_images: int = 2) -> tuple[List[str], str]:
         except Exception as e:
             logging.warning(f"Replicate failed ({e}), trying OpenRouter...")
     
-    # Priority 3: Try OpenRouter (if endpoint available)
+    # Priority 4: Try OpenRouter (if endpoint available)
     if OPENROUTER_API_KEY:
-        logging.info("Priority 3: Attempting OpenRouter...")
+        logging.info("Priority 4: Attempting OpenRouter...")
         try:
             images, model = generate_images_openrouter(prompt, num_images)
             if images and not "Placeholder" in model:
@@ -733,7 +818,7 @@ def generate_images(prompt: str, num_images: int = 2) -> tuple[List[str], str]:
         except Exception as e:
             logging.warning(f"OpenRouter failed ({e}), using SVG fallback...")
     
-    # Priority 4: Fallback to colored SVG placeholders
+    # Priority 5: Fallback to colored SVG placeholders
     logging.info("Using SVG placeholder images (all providers exhausted)")
     metrics["image_api_failures"] += 1  # Track that we had to use SVG fallback
     return _generate_placeholder_images(num_images, seed_prompt=prompt), "Placeholder (SVG - colored by prompt)"
@@ -799,6 +884,7 @@ def generate_chat_reply(user_message: str, history: Optional[list] = None) -> st
 @app.on_event("startup")
 async def startup():
     print("[*] Vizzy Chat Backend started")
+    print(f"Runware API configured: {bool(RUNWARE_API_KEY)} (PRIMARY IMAGE PROVIDER)")
     print(f"OpenRouter API configured: {bool(OPENROUTER_API_KEY)}")
     print(f"Replicate key available: {bool(REPLICATE_API_KEY)}")
 
@@ -817,8 +903,6 @@ async def root():
     }
 
 
-from fastapi import UploadFile, File
-
 @app.get("/metrics")
 async def get_metrics():
     """Return basic accumulated metrics."""
@@ -827,19 +911,35 @@ async def get_metrics():
 
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
-    """Accept an image upload and provide simple analysis and options.
-
-    This is a placeholder implementation to satisfy the spec; a full version
-    would run vision analysis on the bytes.  We currently return a generic
-    description and a few suggested transformations.
+    """Accept an image upload, save it, and provide analysis and options.
+    
+    Returns the saved file URL along with analysis and transformation options.
     """
-    # read but do not store the file
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    
     try:
-        contents = await file.read()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Failed to read upload")
+        # Create unique filename to avoid collisions
+        file_ext = os.path.splitext(file.filename)[1]
+        unique_filename = f"{uuid.uuid4()}{file_ext}"
+        file_path = os.path.join(uploads_dir, unique_filename)
+        
+        # Save uploaded file
+        with open(file_path, "wb") as buffer:
+            contents = await file.read()
+            buffer.write(contents)
+        
+        # Log successful save
+        logging.info(f"Uploaded image saved: {unique_filename}")
+        
+        # Construct the URL for the uploaded image
+        image_url = f"/uploads/{unique_filename}"
+        
+    except Exception as e:
+        logging.error(f"Failed to save upload: {e}")
+        raise HTTPException(status_code=400, detail="Failed to save upload")
 
-    # dummy analysis text
+    # Simple analysis text (in a real app, this would run vision analysis)
     analysis = (
         "This image appears well-composed with balanced lighting. "
         "You could try enhancing contrast or applying a stylistic filter."
@@ -849,7 +949,12 @@ async def upload_image(file: UploadFile = File(...)):
         "Increase brightness and contrast",
         "Crop to a square format",
     ]
-    return {"analysis": analysis, "transform_options": transform_options}
+    
+    return {
+        "image_url": image_url,
+        "analysis": analysis,
+        "transform_options": transform_options
+    }
 
 
 @app.post("/auth/login", response_model=AuthResponse)

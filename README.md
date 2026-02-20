@@ -23,8 +23,13 @@
 - The backend automatically interprets your message and chooses whether to
   respond with text, generate images, or both. No manual mode switching is
   required; everything is driven by intent.
-
-### 🖼️ Smart Image Generation
+- The web UI features a Chat / Images toggle at the top (aligned with session tabs),
+  and a 📜 history icon at the far right of the header. Clicking the icon opens a panel
+  that logs every request and its outputs, so users can revisit previous prompts or
+  thumbnails. The icon toggles the panel on and off.
+- The bottom input bar now adapts to the selected view; it only accepts text
+  messages in Chat mode and only image‑description prompts in Images mode. The
+  earlier mode selector has been removed to reduce clutter.### 🖼️ Smart Image Generation
 - Stable Diffusion XL (high quality)
 - Fallback to colored SVG placeholders
 - Base64 embedding for instant display

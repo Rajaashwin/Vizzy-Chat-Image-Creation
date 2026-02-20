@@ -7,10 +7,22 @@
 }
 
 .app-header {
+  position: relative;
   padding: 20px;
   background: rgba(0, 0, 0, 0.2);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   text-align: center;
+}
+
+.history-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1.5rem;
+  cursor: pointer;
 }
 
 .header-content h1 {
@@ -29,6 +41,12 @@
   justify-content: center;
   margin-top: 10px;
   flex-wrap: wrap;
+}
+
+.view-hint {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  margin-top: 6px;
 }
 
 .model-badge {
@@ -143,11 +161,46 @@
   }
 }
 /* Tab header styling */
+.session-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px;
+  background: rgba(0,0,0,0.15);
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  overflow-x: auto;
+}
+
+.session-tab-btn {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.2s;
+}
+
+.session-tab-btn.active {
+  background: rgba(255,255,255,0.3);
+}
+
+.new-tab-btn {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.4);
+  padding: 6px 12px;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+
 .tab-header {
   display: flex;
   gap: 0;
   border-bottom: 2px solid rgba(255, 255, 255, 0.1);
   background: rgba(0, 0, 0, 0.1);
+  justify-content: flex-start; /* align left under session tabs */
 }
 
 .tab-btn {
@@ -172,6 +225,15 @@
   color: #fff;
   border-bottom-color: #fff;
   background: rgba(255, 255, 255, 0.1);
+}
+
+.no-images {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  opacity: 0.8;
 }
 
 /* Mobile responsive */
