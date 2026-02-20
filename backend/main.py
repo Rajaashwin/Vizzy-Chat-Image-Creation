@@ -660,59 +660,131 @@ def generate_images_openrouter(prompt: str, num_images: int = 2) -> tuple[List[s
 
 
 def generate_images_runware(prompt: str, num_images: int = 4) -> tuple[List[str], str]:
-    """Generate images using Runware API - primary provider.
+    """Generate images using Runware API - Per official API docs.
+    
+    Reference: https://runware.ai/docs/image-inference/api-reference
+    Runware uses task-based REST API with Bearer token authentication.
     
     Returns tuple of (image_urls, model_used).
     """
     if not RUNWARE_API_KEY:
-        logging.warning("RUNWARE_API_KEY not set, skipping Runware")
+        logging.warning("❌ RUNWARE_API_KEY not set, skipping Runware")
         return [], "Placeholder (no Runware key)"
     
     try:
         import requests
         import json
         
-        # Runware API endpoint for image generation
-        api_url = "https://api.runwayml.com/v1/image_generations"
+        # Per Runware docs: endpoint for sending inference tasks
+        api_url = "https://api.runware.ai/v1"
         
-        logging.info(f"Generating {num_images} images via Runware for: {prompt[:50]}...")
+        logging.info(f"🚀 Generating {num_images} images via Runware API")
+        logging.info(f"   Prompt: {prompt[:60]}...")
+        logging.info(f"   API Key: {RUNWARE_API_KEY[:15]}...")
         
         headers = {
             "Authorization": f"Bearer {RUNWARE_API_KEY}",
             "Content-Type": "application/json"
         }
         
-        payload = {
-            "prompt": prompt,
-            "num_outputs": min(num_images, 4),
-            "size": "512x512",
-            "model": "stable-diffusion"
-        }
+        image_urls = []
+        num_to_gen = min(num_images, 4)  # Runware can do up to 20 per request
         
-        response = requests.post(api_url, json=payload, headers=headers, timeout=60)
-        
-        if response.status_code == 200:
+        # Generate images sequentially for reliability
+        for i in range(num_to_gen):
             try:
-                data = response.json()
-                # Runware returns data with 'images' or 'outputs' key depending on endpoint
-                image_urls = data.get("images", data.get("outputs", []))
+                task_uuid = str(uuid.uuid4())
                 
-                if isinstance(image_urls, list) and len(image_urls) > 0:
-                    logging.info(f"✓ Generated {len(image_urls)} images via Runware")
-                    return image_urls, "Runware"
+                # Per official docs: each task is a separate object in array
+                # https://runware.ai/docs/image-inference/text-to-image
+                task = {
+                    "taskType": "imageInference",
+                    "taskUUID": task_uuid,
+                    "positivePrompt": prompt,
+                    "width": 768,        # Must be divisible by 64
+                    "height": 768,       # Must be divisible by 64
+                    "steps": 30,         # More steps = more detail
+                    "CFGScale": 7.5,     # Guidance scale
+                    "model": "runware:101@1",  # FLUX.1 Dev (best quality)
+                    "outputType": "URL", # Return image URL
+                    "outputFormat": "PNG",
+                    "numberResults": 1,  # 1 image per task
+                    "deliveryMethod": "sync",  # Wait for response
+                    "seed": None  # Random seed each time
+                }
+                
+                logging.info(f"\n   📤 [Image {i+1}/{num_to_gen}] Sending to Runware...")
+                logging.debug(f"   Task payload: {json.dumps(task)[:200]}...")
+                
+                # Send request (endpoint accepts array of tasks)
+                response = requests.post(
+                    api_url,
+                    json=[task],  # Wrap in array per docs
+                    headers=headers,
+                    timeout=120  # Generation can take time
+                )
+                
+                logging.info(f"   Response status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    logging.debug(f"   Response body: {json.dumps(data)[:500]}")
+                    
+                    # Per docs response structure: { "data": [ { "imageURL": "...", ... } ] }
+                    response_data = data.get("data", [])
+                    
+                    if isinstance(response_data, list) and len(response_data) > 0:
+                        result = response_data[0]
+                        
+                        # Field name is "imageURL" per official API docs
+                        img_url = result.get("imageURL")
+                        if not img_url:
+                            # Also check lowercase in case API changed
+                            img_url = result.get("imageUrl")
+                        
+                        if img_url:
+                            image_urls.append(img_url)
+                            logging.info(f"   ✅ Got image URL: {img_url[:70]}...")
+                        else:
+                            logging.warning(f"   ⚠️  No imageURL in response. Available keys: {list(result.keys())}")
+                            logging.warning(f"   Full result: {json.dumps(result)[:300]}")
+                    else:
+                        logging.warning(f"   ⚠️  Empty data array in response")
+                        logging.warning(f"   Full response: {json.dumps(data)[:300]}")
+                
+                elif response.status_code == 401:
+                    logging.error(f"   ❌ Unauthorized (401): Invalid API key or key expired")
+                    logging.error(f"   Key used: {RUNWARE_API_KEY[:20]}...")
+                    return [], "Placeholder (Runware auth failed)"
+                elif response.status_code == 429:
+                    logging.error(f"   ❌ Rate limited (429): Too many requests")
+                    return [], "Placeholder (Runware rate limit)"
+                elif response.status_code == 402:
+                    logging.error(f"   ❌ Payment required (402): Insufficient credits")
+                    return [], "Placeholder (Runware insufficient credits)"
                 else:
-                    logging.warning("Runware returned empty images list")
-                    return [], "Placeholder (Runware empty response)"
-            except json.JSONDecodeError:
-                logging.error("Invalid JSON from Runware, using placeholders")
-                return [], "Placeholder (Runware invalid JSON)"
+                    error_text = response.text[:500] if response.text else f"HTTP {response.status_code}"
+                    logging.error(f"   ❌ Runware error {response.status_code}: {error_text}")
+            
+            except requests.Timeout:
+                logging.error(f"   ❌ Request timeout for image {i+1}")
+                continue
+            except Exception as e:
+                logging.error(f"   ❌ Error generating image {i+1}: {type(e).__name__}: {str(e)[:100]}")
+                continue
+        
+        if len(image_urls) > 0:
+            logging.info(f"\n✅ Successfully generated {len(image_urls)} images via Runware FLUX")
+            return image_urls, f"Runware FLUX ({len(image_urls)} images)"
         else:
-            logging.error(f"Runware API error: {response.status_code} - {response.text[:200]}")
-            return [], f"Placeholder (Runware error {response.status_code})"
+            logging.error("❌ Runware returned NO valid image URLs")
+            return [], "Placeholder (Runware generation failed)"
     
     except Exception as e:
-        logging.error(f"Runware image generation failed: {e}")
-        return [], f"Placeholder (Runware exception: {str(e)[:50]})"
+        logging.error(f"❌ Runware critical error: {type(e).__name__}: {e}")
+        import traceback
+        logging.error(f"Traceback:\n{traceback.format_exc()}")
+        return [], f"Placeholder (Runware error: {str(e)[:60]})"
 
 
 def generate_images_replicate(prompt: str, num_images: int = 3) -> tuple[List[str], str]:
