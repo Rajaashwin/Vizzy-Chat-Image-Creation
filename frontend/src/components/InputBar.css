@@ -3,6 +3,8 @@
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   padding: 16px;
   flex-shrink: 0;
+  position: relative;
+  z-index: 50;
 }
 
 .input-controls-row {

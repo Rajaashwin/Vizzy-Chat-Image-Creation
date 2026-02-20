@@ -49,6 +49,7 @@ function App() {
   // mode is determined by the active view (chat or image)
   const mode = activeTabView === 'image' ? 'image' : 'chat';
   const [showHistory, setShowHistory] = useState(false); // separate history toggle
+  const [deletedTabs, setDeletedTabs] = useState([]); // track deleted tabs
   const messagesEndRef = useRef(null);
 
   // Initialize tabs on mount, possibly from localStorage
@@ -254,6 +255,29 @@ function App() {
     setShowHistory(false);
   };
 
+  const handleDeleteTab = (indexToDelete) => {
+    if (tabs.length === 1) {
+      alert('Cannot delete the last tab');
+      return;
+    }
+    
+    // Add deleted tab to history
+    const deletedTab = tabs[indexToDelete];
+    setDeletedTabs([...deletedTabs, { ...deletedTab, deletedAt: new Date().toISOString() }]);
+    
+    // Remove the tab
+    const newTabs = tabs.filter((_, idx) => idx !== indexToDelete);
+    setTabs(newTabs);
+    
+    // Adjust active tab index
+    if (activeTabIndex === indexToDelete) {
+      setActiveTabIndex(Math.max(0, indexToDelete - 1));
+    } else if (activeTabIndex > indexToDelete) {
+      setActiveTabIndex(activeTabIndex - 1);
+    }
+    setShowHistory(false);
+  };
+
   const currentTab = tabs[activeTabIndex] || {
     sessionId: '',
     messages: [],
@@ -377,13 +401,26 @@ function App() {
       {/* session-level tabs with plus button */}
       <div className="session-tabs">
         {tabs.map((tab, idx) => (
-          <button
-            key={tab.sessionId}
-            className={`session-tab-btn ${idx === activeTabIndex ? 'active' : ''}`}
-            onClick={() => { setActiveTabIndex(idx); setActiveTabView('chat'); setShowHistory(false); }}
-          >
-            Tab {idx + 1}
-          </button>
+          <div key={tab.sessionId} className="session-tab-wrapper">
+            <button
+              className={`session-tab-btn ${idx === activeTabIndex ? 'active' : ''}`}
+              onClick={() => { setActiveTabIndex(idx); setActiveTabView('chat'); setShowHistory(false); }}
+            >
+              Tab {idx + 1}
+            </button>
+            {tabs.length > 1 && (
+              <button
+                className="tab-delete-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteTab(idx);
+                }}
+                title="Delete this tab"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         ))}
         <button className="new-tab-btn" onClick={handleNewTab}>+</button>
       </div>
