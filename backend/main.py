@@ -280,9 +280,12 @@ if os.path.exists(frontend_build_path):
 else:
     logging.warning(f"Frontend build directory not found at {frontend_build_path}")
 
-# Mount uploads directory to serve uploaded files
-app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
-logging.info(f"Uploads directory mounted for serving at /uploads")
+# Serve uploaded files from the uploads directory
+if os.path.exists(uploads_dir):
+    app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
+    logging.info(f"Uploads directory served at /uploads")
+else:
+    logging.warning(f"Uploads directory not found at {uploads_dir}")
 
 # In-memory sessions
 sessions = {}
@@ -1042,7 +1045,7 @@ def generate_chat_reply(user_message: str, history: Optional[list] = None) -> st
 
         # For chat, use minimal system prompt and higher max_tokens to prevent token limit cutoff
         minimal_system = "You are Vizzy, a helpful creative AI assistant. Answer concisely and helpfully."
-        text = generate_text(user_message, max_tokens=800, temperature=0.7, system_prompt=minimal_system)
+        text = generate_text(user_message, max_tokens=1000, temperature=0.7, system_prompt=minimal_system)
         
         if text and text.strip():
             result = text.strip()

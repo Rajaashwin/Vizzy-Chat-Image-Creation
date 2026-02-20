@@ -1,8 +1,9 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import './InputBar.css'
 
 export default function InputBar({ onSend, onUpload, disabled, mode, setMode, showModeControls = true }) {
   const [input, setInput] = useState('');
+  const fileInputRef = useRef(null);
 
   const handleSubmit = () => {
     if (input.trim()) {
@@ -16,6 +17,19 @@ export default function InputBar({ onSend, onUpload, disabled, mode, setMode, sh
       e.preventDefault()
       handleSubmit()
     }
+  }
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (file && onUpload) {
+      onUpload(file)
+    }
+    // Reset the input so the same file can be uploaded again
+    e.target.value = ''
   }
 
 
@@ -59,15 +73,26 @@ export default function InputBar({ onSend, onUpload, disabled, mode, setMode, sh
           >
             {disabled ? '⏳' : '→'}
           </button>
-          {onUpload && mode === 'image' && (
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => onUpload(e.target.files[0])}
-              disabled={disabled}
-              className="upload-input"
-              aria-label="Upload image"
-            />
+          {onUpload && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileSelect}
+                disabled={disabled}
+                style={{ display: 'none' }}
+                aria-label="Upload image"
+              />
+              <button
+                onClick={handleUploadClick}
+                disabled={disabled}
+                className="upload-btn"
+                title="Upload an image"
+              >
+                📤 Upload
+              </button>
+            </>
           )}
         </div>
       </div>

@@ -16,3 +16,7 @@ services:
         sync: false
       - key: REPLICATE_API_KEY
         sync: false
+      - key: RUNWARE_API_KEY
+        sync: false
+      - key: AIML_API_KEY
+        sync: false
